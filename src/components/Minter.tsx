@@ -2,19 +2,22 @@
 
 import React, { useCallback, useRef, useState } from "react";
 import { getQueryClient } from "@sei-js/core";
-import { DirectSecp256k1HdWallet } from "@cosmjs/proto-signing";
 import { HdPath, stringToPath } from "@cosmjs/crypto";
+import { getNetworkInfo, Network } from "@injectivelabs/networks";
 
 import {
-  calculateFee,
-  GasPrice,
-  SigningStargateClient,
-} from "@cosmjs/stargate";
+  MsgSend,
+  PrivateKey,
+  TxClient,
+  TxGrpcClient,
+  DEFAULT_STD_FEE,
+  ChainRestAuthApi,
+  createTransaction,
+} from "@injectivelabs/sdk-ts";
+import { BigNumberInBase } from "@injectivelabs/utils";
 
-const getHdPath = (accountIndex = 0): HdPath => {
-  const stringPath = `m/44'/118'/0'/0/${accountIndex}`;
-  return stringToPath(stringPath);
-};
+const network = getNetworkInfo(Network.Mainnet);
+
 
 const Minter: React.FC = () => {
   const [mnemonic, setMnemonic] = useState<string>("");
@@ -24,110 +27,101 @@ const Minter: React.FC = () => {
   const [logs, setLogs] = useState<string[]>([]);
   const [count, setCount] = useState<number>(0);
 
-  const mintFn = useCallback(
-    async (client: SigningStargateClient, address: string) => {
-      try {
-        const msg = {
-          p: "cia-20",
-          op: "mint",
-          tick: "injs",
-          amt: "10000",
-        };
-        const msg_base64 = btoa(`data:,${JSON.stringify(msg)}`);
-        const fee = calculateFee(100000, "0.1utia");
-        const response = await client.sendTokens(
-          address,
-          address,
-          [{ amount: "1", denom: "utia" }],
-          fee,
-          msg_base64
-        );
-        setLogs((pre) => [
-          ...pre,
-          `铸造完成, txhash: ${response.transactionHash}`,
-        ]);
-      } catch (e) {
-        // sleep 1s
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-      }
-    },
-    []
-  );
+  const mintFn = useCallback(async (privateKey: PrivateKey) => {
+    try {
+      const injectiveAddress = privateKey.toBech32();
+
+      const amount = {
+        amount: new BigNumberInBase(0.03).toWei().toFixed(),
+        denom: "inj",
+      };
+
+      const publicKey = privateKey.toPublicKey().toBase64();
+
+      const accountDetails = await new ChainRestAuthApi(
+        network.rest
+      ).fetchAccount(injectiveAddress);
+
+      const msg = MsgSend.fromJSON({
+        amount,
+        srcInjectiveAddress: injectiveAddress,
+        dstInjectiveAddress: "inj15jy9vzmyy63ql9y6dvned2kdat2994x5f4ldu4",
+      });
+
+      const { signBytes, txRaw } = createTransaction({
+        message: msg,
+        memo: "",
+        fee: DEFAULT_STD_FEE,
+        pubKey: publicKey,
+        sequence: parseInt(accountDetails.account.base_account.sequence, 10),
+        accountNumber: parseInt(
+          accountDetails.account.base_account.account_number,
+          10
+        ),
+        chainId: network.chainId,
+      });
+
+      const signature = await privateKey.sign(Buffer.from(signBytes));
+
+      /** Append Signatures */
+      txRaw.signatures = [signature];
+
+      /** Calculate hash of the transaction */
+      console.log(`Transaction Hash: ${TxClient.hash(txRaw)}`);
+
+      const txService = new TxGrpcClient(network.grpc);
+
+      /** Simulate transaction */
+      const simulationResponse = await txService.simulate(txRaw);
+      console.log(
+        `Transaction simulation response: ${JSON.stringify(
+          simulationResponse.gasInfo
+        )}`
+      );
+
+      /** Broadcast transaction */
+      const txResponse = await txService.broadcast(txRaw);
+      console.log(txResponse);
+      setCount((prev) => prev + 1);
+      setLogs((pre) => [...pre, `铸造完成, txhash: ${TxClient.hash(txRaw)}`]);
+    } catch (e) {
+      // sleep 1s
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }, []);
 
   const walletMint = useCallback(
     async (m: string) => {
       // const wallet = await generateWalletFromMnemonic(m);
-      const denom = "utia";
-      const chain = "celestia";
-      const rpcEndpoint = "https://public-celestia-rpc.numia.xyz";
-      const gasPrice = GasPrice.fromString(`0.025${denom}`);
-      const wallet = await DirectSecp256k1HdWallet.fromMnemonic(m, {
-        prefix: chain,
-        hdPaths: [getHdPath(0) as any],
-      });
+      const denom = "inj";
 
-      const client = await SigningStargateClient.connectWithSigner(
-        rpcEndpoint,
-        wallet,
-        { gasPrice: gasPrice }
-      );
-
-      const accounts = await wallet.getAccounts();
-      setLogs((pre) => [...pre, `成功导入钱包: ${accounts[0].address}`]);
+      const priv = PrivateKey.fromMnemonic(m);
+      const address = priv.toAddress();
+      console.log(Buffer.from(priv.toPrivateKeyHex().slice(2)).length);
+      // const wallet = await DirectSecp256k1Wallet.fromKey(Buffer.from(priv.toPrivateKeyHex().slice(2)), chain);
+      setLogs((pre) => [...pre, `成功导入钱包: ${address.address}`]);
 
       const queryClient = await getQueryClient(
-        "https://public-celestia-lcd.numia.xyz"
+        "https://sentry.lcd.injective.network:443"
       );
       const result = await queryClient.cosmos.bank.v1beta1.balance({
-        address: accounts[0].address,
-        denom: "utia",
+        address: address.address,
+        denom,
       });
       const balance = result.balance;
       setLogs((pre) => [...pre, `账户余额为:${balance.amount}`]);
 
       if (Number(balance.amount) === 0) {
         setLogs((pre) => [...pre, `账户余额不足`]);
-        return;
+        // return;
       }
-
-      try {
-        // const msg = {
-        //   op: "mint",
-        //   amt: "10000",
-        //   tick: "injs",
-        //   p: "cia-20",
-        // };
-        // const msg_base64 = btoa(`data:,${JSON.stringify(msg)}`);
-        const msg_base64 = 'ZGF0YToseyJvcCI6Im1pbnQiLCJhbXQiOjEwMDAwLCJ0aWNrIjoiY2lhcyIsInAiOiJjaWEtMjAifQ=='
-        const fee = calculateFee(100000, "0.5utia");
-        const response = await client.sendTokens(
-          accounts[0].address,
-          accounts[0].address,
-          [{ amount: "1", denom: "utia" }],
-          fee,
-          msg_base64
-        );
-        setLogs((pre) => [
-          ...pre,
-          `铸造完成, txhash: ${response.transactionHash}`,
-        ]);
-        setCount((pre) => pre + 1);
-      } catch (e) {
-        // sleep 1s
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-      }
-
-      // const signingCosmWasmClient = await getSigningCosmWasmClient(
-      //   RPC_URL_2,
-      //   wallet
-      // );
 
       while (true) {
         if (isEndRef.current) {
           setLogs((pre) => [...pre, `暂停铸造`]);
           break;
         }
-        await mintFn(client, accounts[0].address);
+        await mintFn(priv);
         await new Promise((resolve) => setTimeout(resolve, 300));
       }
     },
