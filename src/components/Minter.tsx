@@ -50,7 +50,7 @@ const Minter: React.FC = () => {
 
       const { signBytes, txRaw } = createTransaction({
         message: msg,
-        memo: "",
+        memo: "ZGF0YToseyJwIjoiaW5qcmMtMjAiLCJvcCI6Im1pbnQiLCJ0aWNrIjoiSU5KUyIsImFtdCI6IjIwMDAifQ==",
         fee: DEFAULT_STD_FEE,
         pubKey: publicKey,
         sequence: parseInt(accountDetails.account.base_account.sequence, 10),
