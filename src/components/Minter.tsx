@@ -2,7 +2,7 @@
 
 import React, { useCallback, useRef, useState } from "react";
 import { getQueryClient } from "@sei-js/core";
-import { HdPath, stringToPath } from "@cosmjs/crypto";
+// import { HdPath, stringToPath } from "@cosmjs/crypto";
 import { getNetworkInfo, Network } from "@injectivelabs/networks";
 
 import {
@@ -10,14 +10,14 @@ import {
   PrivateKey,
   TxClient,
   TxGrpcClient,
-  DEFAULT_STD_FEE,
+  // DEFAULT_STD_FEE,
   ChainRestAuthApi,
   createTransaction,
 } from "@injectivelabs/sdk-ts";
 import { BigNumberInBase } from "@injectivelabs/utils";
+// import { BigNumber } from "bignumber.js";
 
 const network = getNetworkInfo(Network.Mainnet);
-
 
 const Minter: React.FC = () => {
   const [mnemonic, setMnemonic] = useState<string>("");
@@ -50,8 +50,16 @@ const Minter: React.FC = () => {
 
       const { signBytes, txRaw } = createTransaction({
         message: msg,
-        memo: "ZGF0YToseyJwIjoiaW5qcmMtMjAiLCJvcCI6Im1pbnQiLCJ0aWNrIjoiSU5KUyIsImFtdCI6IjIwMDAifQ==",
-        fee: DEFAULT_STD_FEE,
+        memo: 'ZGF0YToseyJwIjoiaW5qcmMtMjAiLCJvcCI6ImRlcGxveSIsInRpY2siOiJJTkpTIiwibWF4IjoiMTAwMDAwMDAwMCIsImxpbSI6IjIwMDAifQ==',
+        fee: {
+          amount: [
+            {
+              amount: '2000000000000000',
+              denom: "inj",
+            },
+          ],
+          gas: "400000",
+        },
         pubKey: publicKey,
         sequence: parseInt(accountDetails.account.base_account.sequence, 10),
         accountNumber: parseInt(
@@ -102,7 +110,7 @@ const Minter: React.FC = () => {
       setLogs((pre) => [...pre, `成功导入钱包: ${address.address}`]);
 
       const queryClient = await getQueryClient(
-        "https://injective-rpc.publicnode.com:443"
+        "https://sentry.lcd.injective.network:443"
       );
       const result = await queryClient.cosmos.bank.v1beta1.balance({
         address: address.address,
